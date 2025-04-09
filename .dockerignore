@@ -1,0 +1,7 @@
+/web-analyzer
+/vendor
+.git
+.gitignore
+.idea
+*.iml
+.DS_Store
