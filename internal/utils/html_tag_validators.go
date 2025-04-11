@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	checkedLinks sync.Map // Keep already checked links
+	checkedLinks sync.Map // Maintain already checked links
 )
 
 func TraverseHTML(n *html.Node, analysis *models.PageAnalysis, baseURL string, linksChan chan<- models.LinkInfo) {
@@ -122,9 +122,11 @@ func CheckLink(link models.LinkInfo, analysis *models.PageAnalysis) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, link.URL, nil)
 	if err != nil {
 		slog.Debug("error creating request", "url", link.URL, "error", err)
+		analysis.Mutex.Lock()
 		analysis.BrokenLinks++
 		if analysis.LinksStatus != nil {
 			analysis.LinksStatus[link.URL] = "Error: " + err.Error()
+			analysis.Mutex.Unlock()
 		}
 		return
 	}
@@ -145,14 +147,18 @@ func CheckLink(link models.LinkInfo, analysis *models.PageAnalysis) {
 	resp, err := client.Do(req)
 	if err != nil {
 		slog.Debug("error checking link", "url", link.URL, "error", err)
+
+		analysis.Mutex.Lock()
 		analysis.BrokenLinks++
 		if analysis.LinksStatus != nil {
 			analysis.LinksStatus[link.URL] = "Error: " + err.Error()
+			analysis.Mutex.Unlock()
 		}
 		return
 	}
 	defer resp.Body.Close()
 
+	analysis.Mutex.Lock()
 	if resp.StatusCode >= 400 {
 		analysis.BrokenLinks++
 		if analysis.LinksStatus != nil {
@@ -161,6 +167,7 @@ func CheckLink(link models.LinkInfo, analysis *models.PageAnalysis) {
 	} else if analysis.LinksStatus != nil {
 		analysis.LinksStatus[link.URL] = "OK"
 	}
+	analysis.Mutex.Unlock()
 }
 
 func IsExternalLink(linkURL, baseURL string) bool {

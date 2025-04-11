@@ -20,9 +20,8 @@ import (
 
 func AnalyzePage(ctx context.Context, targetURL string) (*models.PageAnalysis, error) {
 
-	parsedURL, err := url.Parse(targetURL)
-	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
-		return nil, fmt.Errorf("invalid URL format: %s", targetURL)
+	if err := validateURL(targetURL); err != nil {
+		return nil, err
 	}
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -33,26 +32,31 @@ func AnalyzePage(ctx context.Context, targetURL string) (*models.PageAnalysis, e
 	}
 
 	req, err := http.NewRequestWithContext(ctxWithTimeout, http.MethodGet, targetURL, nil)
+
 	if err != nil {
 		metrics.Requests.WithLabelValues("failed").Inc()
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request. : %w", err)
 	}
 
 	req.Header.Set("User-Agent", "WebAnalyzer/1.0")
 
 	resp, err := client.Do(req)
+
 	if err != nil {
 		metrics.Requests.WithLabelValues("failed").Inc()
-		return nil, fmt.Errorf("failed to fetch page: %w", err)
+		return nil, fmt.Errorf("failed to fetch page. : %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		metrics.Requests.WithLabelValues("error").Inc()
-		return nil, fmt.Errorf("received non-OK status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("request failed: received status code %d (%s)",
+			resp.StatusCode, http.StatusText(resp.StatusCode))
+
 	}
 
 	doc, err := html.Parse(resp.Body)
+
 	if err != nil {
 		metrics.Requests.WithLabelValues("parse_error").Inc()
 		return nil, fmt.Errorf("failed to parse HTML: %w", err)
@@ -66,6 +70,7 @@ func AnalyzePage(ctx context.Context, targetURL string) (*models.PageAnalysis, e
 	}
 
 	versionChan := make(chan string, 1)
+
 	go func() {
 		versionChan <- utils.DetectHTMLVersion(resp)
 	}()
@@ -106,7 +111,7 @@ func AnalyzePage(ctx context.Context, targetURL string) (*models.PageAnalysis, e
 	select {
 	case <-resultChan: // successfully processed links
 	case <-ctx.Done():
-		return nil, fmt.Errorf("analysis cancelled or timed out: %w", ctx.Err())
+		return nil, fmt.Errorf("analysis cancelled / timed out: %w", ctx.Err())
 	}
 
 	analysis.HTMLVersion = <-versionChan
@@ -172,4 +177,12 @@ func HandleAnalyze(c *gin.Context) {
 			Details: "The analysis request was cancelled / timed out",
 		})
 	}
+}
+
+func validateURL(targetURL string) error {
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" {
+		return fmt.Errorf("invalid URL format: %s", targetURL)
+	}
+	return nil
 }

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"bufio"
+	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -10,17 +12,31 @@ import (
 
 func DetectHTMLVersion(resp *http.Response) string {
 
-	reader := bufio.NewReader(resp.Body)
+	var reader io.Reader = resp.Body
 
-	documentTypeBuffer, err := reader.Peek(4096) // Limit to initial 4KB
-	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(resp.Body)
+		if err == nil {
+			defer gzipReader.Close()
+			reader = gzipReader
+		} else {
+			return "Unknown (gzip decoding error)"
+		}
+	}
+
+	bufReader := bufio.NewReaderSize(reader, 4096)
+	documentTypeBuffer, err := bufReader.Peek(4096)
+	if err != nil && err != io.EOF {
 		return "Unknown (detection error)"
 	}
 
 	snippet := string(documentTypeBuffer)
-
 	contentType := resp.Header.Get("Content-Type")
 	isXHTML := strings.Contains(contentType, "application/xhtml+xml")
+
+	// Debug print
+	fmt.Println("HTML Snippet Start:\n", snippet[:min(500, len(snippet))])
+	fmt.Println("Content-Type:", contentType)
 
 	switch {
 	case html5Regex.MatchString(snippet):
@@ -52,7 +68,7 @@ func DetectHTMLVersion(resp *http.Response) string {
 }
 
 var (
-	html5Regex         = regexp.MustCompile(`(?i)<!DOCTYPE\s+html>`)
+	html5Regex         = regexp.MustCompile(`(?i)<!DOCTYPE\s+html\s*>`)
 	html401StrictRegex = regexp.MustCompile(`(?i)<!DOCTYPE\s+HTML\s+PUBLIC\s+"-//W3C//DTD HTML 4\.01//EN"`)
 	html401TransRegex  = regexp.MustCompile(`(?i)<!DOCTYPE\s+HTML\s+PUBLIC\s+"-//W3C//DTD HTML 4\.01 Transitional//EN"`)
 	html401FrameRegex  = regexp.MustCompile(`(?i)<!DOCTYPE\s+HTML\s+PUBLIC\s+"-//W3C//DTD HTML 4\.01 Frameset//EN"`)

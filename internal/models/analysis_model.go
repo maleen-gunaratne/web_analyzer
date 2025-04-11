@@ -1,5 +1,7 @@
 package models
 
+import "sync"
+
 type PageAnalysis struct {
 	HTMLVersion      string            `json:"html_version"`
 	Title            string            `json:"title"`
@@ -13,6 +15,7 @@ type PageAnalysis struct {
 	LinksStatus      map[string]string `json:"links_status,omitempty"`
 	AnalysisDuration string            `json:"analysis_duration,omitempty"`
 	MetaTags         map[string]string `json:"meta_tags,omitempty"`
+	Mutex            sync.Mutex
 }
 
 type LinkInfo struct {
